@@ -252,6 +252,10 @@ POST {image_base_url}/images/generations
 
 检查插件是否加载成功，依赖 `httpx` 和 `dashscope` 是否安装，AstrBot 日志里是否出现导入错误。
 
+### 模型没有收到图片
+
+需要在模型配置中手动勾选图片能力
+
 ### 主模型不会主动调用工具
 
 确认主模型支持 Function Calling / Tools，并且已经执行：
@@ -282,6 +286,8 @@ DashScope 返回的是临时图片 URL，插件默认会下载到本地再发送
 
 本地图片发送依赖 AstrBot 所用平台适配器支持 `Image.fromFileSystem`。  
 如果平台不支持本地文件发送，可以让文生图服务返回 URL，或者把生成文件上传到可访问地址后再发送。
+
+
 
 ## 文件结构
 
