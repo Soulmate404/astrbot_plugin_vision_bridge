@@ -3,6 +3,7 @@ import base64
 import mimetypes
 import re
 import time
+import weakref
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Iterable
@@ -34,6 +35,15 @@ except ImportError:
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 _DOWNLOAD_CONCURRENCY = 4
+_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+_MIME_TO_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tif",
+}
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -195,7 +205,10 @@ class VisionBridgePlugin(Star):
         self._http = None
         self._download_semaphore = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
 
-        self.context.add_llm_tools(VisionBridgeTool(plugin=self), ImageGenerateTool(plugin=self))
+        self.context.add_llm_tools(
+            VisionBridgeTool(plugin=weakref.proxy(self)),
+            ImageGenerateTool(plugin=weakref.proxy(self)),
+        )
         logger.info("vision_analyze and image_generate tools registered.")
 
     def _ensure_http(self) -> httpx.AsyncClient:
@@ -287,6 +300,8 @@ class VisionBridgePlugin(Star):
             detail = "\n".join(errors)
             return "没有找到可分析的图片。" + (f"\n{detail}" if detail else "")
 
+        if len(image_refs) > self.max_images:
+            errors.insert(0, f"图片数超过最大限制（{self.max_images}），仅分析前 {self.max_images} 张。")
         image_refs = image_refs[: self.max_images]
         try:
             answer = await self._call_vision_model(question, image_refs)
@@ -531,7 +546,10 @@ class VisionBridgePlugin(Star):
         ext = Path(urlparse(url).path).suffix.lower()
         if ext in IMAGE_SUFFIXES:
             return ext
-        guessed = mimetypes.guess_extension(content_type.split(";")[0].strip())
+        mime = content_type.split(";")[0].strip()
+        if mime in _MIME_TO_EXT:
+            return _MIME_TO_EXT[mime]
+        guessed = mimetypes.guess_extension(mime)
         return guessed or ".png"
 
     def _get_value(self, obj: Any, key: str) -> Any:
@@ -654,6 +672,11 @@ class VisionBridgePlugin(Star):
         return None
 
     def _file_to_data_url_ref(self, path: Path) -> dict[str, Any]:
+        size = path.stat().st_size
+        if size > _MAX_IMAGE_BYTES:
+            raise ValueError(
+                f"文件过大（{size / 1024 / 1024:.1f} MB），超过最大限制（{_MAX_IMAGE_BYTES / 1024 / 1024:.0f} MB）。"
+            )
         mime_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         return {
