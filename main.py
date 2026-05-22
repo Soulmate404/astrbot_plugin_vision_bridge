@@ -33,6 +33,7 @@ except ImportError:
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+_DOWNLOAD_CONCURRENCY = 4
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -47,7 +48,7 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 @dataclass
 class VisionBridgeTool(FunctionTool[AstrAgentContext]):
-    plugin: Any = Field(default=None, exclude=True)
+    plugin: "VisionBridgePlugin" = Field(default=None, exclude=True)
     name: str = "vision_analyze"
     description: str = (
         "Analyze images from the current conversation or from allowed local files/directories "
@@ -99,7 +100,7 @@ class VisionBridgeTool(FunctionTool[AstrAgentContext]):
 
 @dataclass
 class ImageGenerateTool(FunctionTool[AstrAgentContext]):
-    plugin: Any = Field(default=None, exclude=True)
+    plugin: "VisionBridgePlugin" = Field(default=None, exclude=True)
     name: str = "image_generate"
     description: str = (
         "Generate an image from a text prompt with DashScope or an OpenAI-compatible image generation API. "
@@ -204,14 +205,22 @@ class VisionBridgePlugin(Star):
     async def vision_analyze_command(self, event: AstrMessageEvent):
         """手动测试图片转述。用法：/vision_analyze [本地图片或目录] [问题]"""
         text = (event.message_str or "").strip()
-        parts = text.split(maxsplit=2)
+        if text.startswith("/vision_analyze"):
+            text = text[len("/vision_analyze"):].strip()
+
         local_paths: list[str] = []
         question = self.default_question
 
-        if len(parts) >= 2:
-            local_paths = [parts[1]]
-        if len(parts) >= 3:
-            question = parts[2]
+        if text:
+            first, _, rest = text.partition(" ")
+            first = first.strip()
+            rest = rest.strip()
+            if self._looks_like_path(first):
+                local_paths = [first]
+                if rest:
+                    question = rest
+            else:
+                question = text
 
         result = await self.analyze_images(
             question=question,
@@ -495,18 +504,20 @@ class VisionBridgePlugin(Star):
         paths: list[str] = []
         failed_urls: list[str] = []
         timestamp = int(time.time())
+        semaphore = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
 
         async def _download_one(index: int, url: str):
-            try:
-                resp = await self._http.get(url, timeout=httpx.Timeout(self.image_timeout))
-                resp.raise_for_status()
-                ext = self._guess_image_ext(url, resp.headers.get("content-type", ""))
-                path = self.image_output_dir / f"{timestamp}_{index}_{self._short_id(url)}{ext}"
-                path.write_bytes(resp.content)
-                paths.append(str(path))
-            except Exception:
-                logger.exception("Failed to download generated image: %s", url)
-                failed_urls.append(url)
+            async with semaphore:
+                try:
+                    resp = await self._http.get(url, timeout=httpx.Timeout(self.image_timeout))
+                    resp.raise_for_status()
+                    ext = self._guess_image_ext(url, resp.headers.get("content-type", ""))
+                    path = self.image_output_dir / f"{timestamp}_{index}_{self._short_id(url)}{ext}"
+                    path.write_bytes(resp.content)
+                    paths.append(str(path))
+                except Exception:
+                    logger.exception("Failed to download generated image: %s", url)
+                    failed_urls.append(url)
 
         await asyncio.gather(*[_download_one(i, url) for i, url in enumerate(urls)])
         return paths, failed_urls
@@ -526,6 +537,13 @@ class VisionBridgePlugin(Star):
     def _short_id(self, value: str) -> str:
         cleaned = re.sub(r"[^A-Za-z0-9]", "", value)
         return cleaned[:8] or "image"
+
+    @staticmethod
+    def _looks_like_path(value: str) -> bool:
+        return bool(
+            value.startswith(("/", "~/", "./", "../"))
+            or re.match(r"^[A-Za-z]:[\\/]", value)
+        )
 
     def _resolve_allowed_dirs(self, values: Any) -> list[Path]:
         if isinstance(values, str):
