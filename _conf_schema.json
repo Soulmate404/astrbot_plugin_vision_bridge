@@ -1,0 +1,133 @@
+{
+  "api_key": {
+    "description": "多模态模型 API Key",
+    "type": "string",
+    "hint": "OpenAI 兼容 /chat/completions 接口的 Bearer Token。",
+    "default": ""
+  },
+  "base_url": {
+    "description": "OpenAI 兼容接口 Base URL",
+    "type": "string",
+    "hint": "例如 https://api.openai.com/v1 或你的 NewAPI / OneAPI 地址。",
+    "default": "https://api.openai.com/v1"
+  },
+  "model": {
+    "description": "多模态模型名称",
+    "type": "string",
+    "hint": "需要支持 image_url 输入。",
+    "default": "gpt-4o-mini"
+  },
+  "allowed_local_dirs": {
+    "description": "允许读取图片的本地目录白名单",
+    "type": "list",
+    "items": {
+      "type": "string"
+    },
+    "hint": "工具读取本地文件或目录时必须位于这些目录内。留空时，本地路径默认不可读，除非开启 allow_any_local_path。",
+    "default": []
+  },
+  "allow_any_local_path": {
+    "description": "允许读取任意本地路径",
+    "type": "bool",
+    "hint": "有安全风险。开启后，支持让模型按参数读取 AstrBot 进程可访问的任意图片路径。",
+    "default": false
+  },
+  "local_recursive": {
+    "description": "扫描目录时默认递归",
+    "type": "bool",
+    "default": false
+  },
+  "max_images": {
+    "description": "单次最多分析图片数",
+    "type": "int",
+    "default": 4
+  },
+  "max_output_tokens": {
+    "description": "多模态模型最大输出 token",
+    "type": "int",
+    "default": 800
+  },
+  "timeout": {
+    "description": "请求超时时间秒数",
+    "type": "float",
+    "default": 60
+  },
+  "default_question": {
+    "description": "默认图片分析要求",
+    "type": "string",
+    "default": "请客观描述图片内容，保留关键文字、物体、场景和可能与用户问题相关的细节。"
+  },
+  "extra_body": {
+    "description": "附加请求体参数",
+    "type": "object",
+    "items": {},
+    "hint": "可填写 temperature、top_p 等 OpenAI 兼容接口参数。",
+    "default": {}
+  },
+  "image_api_key": {
+    "description": "文生图 API Key",
+    "type": "string",
+    "hint": "阿里云 DashScope API Key。留空时复用 api_key。",
+    "default": ""
+  },
+  "image_provider": {
+    "description": "文生图接口类型",
+    "type": "string",
+    "hint": "dashscope 使用阿里云 DashScope SDK；openai 使用 OpenAI 兼容 /images/generations。",
+    "default": "dashscope"
+  },
+  "image_base_url": {
+    "description": "文生图接口 Base URL",
+    "type": "string",
+    "hint": "DashScope 国内站通常是 https://dashscope.aliyuncs.com/api/v1；国际站可用 https://dashscope-intl.aliyuncs.com/api/v1。",
+    "default": "https://dashscope.aliyuncs.com/api/v1"
+  },
+  "image_model": {
+    "description": "文生图模型名称",
+    "type": "string",
+    "default": "wan2.7-image-pro"
+  },
+  "image_size": {
+    "description": "默认图片尺寸",
+    "type": "string",
+    "hint": "DashScope Wan 支持 1K、2K、4K 或宽高比；部分服务商使用 1024*1024 这类格式。",
+    "default": "2K"
+  },
+  "image_n": {
+    "description": "默认生成图片数量",
+    "type": "int",
+    "hint": "DashScope 组图模式最多 12，非组图和 OpenAI 兼容模式最多 4。",
+    "default": 4
+  },
+  "image_timeout": {
+    "description": "文生图超时时间秒数",
+    "type": "float",
+    "hint": "DashScope 组图和 2K 生成可能耗时较长，默认 300 秒。",
+    "default": 300
+  },
+  "image_enable_sequential": {
+    "description": "启用 DashScope 组图模式",
+    "type": "bool",
+    "hint": "对应 ImageGeneration.call(enable_sequential=True)。",
+    "default": true
+  },
+  "image_download_results": {
+    "description": "下载 DashScope 结果图片到本地",
+    "type": "bool",
+    "hint": "DashScope 返回的图片 URL 通常 24 小时有效，建议开启保存到 image_output_dir。",
+    "default": true
+  },
+  "image_output_dir": {
+    "description": "文生图保存目录",
+    "type": "string",
+    "hint": "当接口返回 b64_json 或 DashScope 临时图片 URL 时，插件会把图片保存到这里。",
+    "default": "data/vision_bridge_images"
+  },
+  "image_extra_body": {
+    "description": "文生图附加请求体参数",
+    "type": "object",
+    "items": {},
+    "hint": "可填写 response_format、quality、style 等服务商支持的参数。",
+    "default": {}
+  }
+}
