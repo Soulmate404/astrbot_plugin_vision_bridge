@@ -48,7 +48,7 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 @dataclass
 class VisionBridgeTool(FunctionTool[AstrAgentContext]):
-    plugin: "VisionBridgePlugin" = Field(default=None, exclude=True)
+    plugin: Any = Field(default=None, exclude=True)
     name: str = "vision_analyze"
     description: str = (
         "Analyze images from the current conversation or from allowed local files/directories "
@@ -100,7 +100,7 @@ class VisionBridgeTool(FunctionTool[AstrAgentContext]):
 
 @dataclass
 class ImageGenerateTool(FunctionTool[AstrAgentContext]):
-    plugin: "VisionBridgePlugin" = Field(default=None, exclude=True)
+    plugin: Any = Field(default=None, exclude=True)
     name: str = "image_generate"
     description: str = (
         "Generate an image from a text prompt with DashScope or an OpenAI-compatible image generation API. "
@@ -192,13 +192,19 @@ class VisionBridgePlugin(Star):
         )
         self.image_extra_body = config.get("image_extra_body", {}) or {}
 
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
+        self._http = None
+        self._download_semaphore = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
 
         self.context.add_llm_tools(VisionBridgeTool(plugin=self), ImageGenerateTool(plugin=self))
         logger.info("vision_analyze and image_generate tools registered.")
 
+    def _ensure_http(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
+        return self._http
+
     async def terminate(self):
-        if hasattr(self, "_http"):
+        if self._http is not None:
             await self._http.aclose()
 
     @filter.command("vision_analyze")
@@ -332,7 +338,7 @@ class VisionBridgePlugin(Star):
 
         headers = {"Authorization": f"Bearer {self.image_api_key}", "Content-Type": "application/json"}
         try:
-            resp = await self._http.post(
+            resp = await self._ensure_http().post(
                 f"{self.image_base_url}/images/generations",
                 headers=headers,
                 json=body,
@@ -504,12 +510,11 @@ class VisionBridgePlugin(Star):
         paths: list[str] = []
         failed_urls: list[str] = []
         timestamp = int(time.time())
-        semaphore = asyncio.Semaphore(_DOWNLOAD_CONCURRENCY)
 
         async def _download_one(index: int, url: str):
-            async with semaphore:
+            async with self._download_semaphore:
                 try:
-                    resp = await self._http.get(url, timeout=httpx.Timeout(self.image_timeout))
+                    resp = await self._ensure_http().get(url, timeout=httpx.Timeout(self.image_timeout))
                     resp.raise_for_status()
                     ext = self._guess_image_ext(url, resp.headers.get("content-type", ""))
                     path = self.image_output_dir / f"{timestamp}_{index}_{self._short_id(url)}{ext}"
@@ -679,7 +684,7 @@ class VisionBridgePlugin(Star):
             body.update(self.extra_body)
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        resp = await self._http.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
+        resp = await self._ensure_http().post(f"{self.base_url}/chat/completions", headers=headers, json=body)
         resp.raise_for_status()
         payload = resp.json()
 
