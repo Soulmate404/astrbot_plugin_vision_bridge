@@ -14,7 +14,7 @@ from pydantic.dataclasses import dataclass
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 import astrbot.api.message_components as Comp
-from astrbot.api.star import Context, Star
+from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
@@ -69,7 +69,7 @@ class VisionBridgeTool(FunctionTool[AstrAgentContext]):
 
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> ToolExecResult:
+    ) -> ToolExecResult | str:
         question = str(kwargs.get("question") or self.plugin.default_question)
         image_paths = self.plugin.normalize_image_paths(
             kwargs.get("image_path"), kwargs.get("image_paths")
@@ -120,7 +120,7 @@ class ImageGenerateTool(FunctionTool[AstrAgentContext]):
 
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
-    ) -> ToolExecResult:
+    ) -> ToolExecResult | str:
         prompt = str(kwargs.get("prompt") or "").strip()
         size = str(kwargs.get("size") or self.plugin.image_size).strip()
         n = int(kwargs.get("n") or self.plugin.image_n)
@@ -170,9 +170,13 @@ class VisionBridgePlugin(Star):
         self.image_timeout = float(config.get("image_timeout", 300))
         self.image_enable_sequential = _as_bool(config.get("image_enable_sequential"), True)
         self.image_download_results = _as_bool(config.get("image_download_results"), True)
-        self.image_output_dir = Path(
-            str(config.get("image_output_dir", "data/vision_bridge_images"))
-        ).expanduser()
+        default_image_output_dir = StarTools.get_data_dir() / "images"
+        configured_image_output_dir = str(config.get("image_output_dir", "") or "").strip()
+        self.image_output_dir = (
+            Path(configured_image_output_dir).expanduser()
+            if configured_image_output_dir
+            else default_image_output_dir
+        )
         self.image_extra_body = config.get("image_extra_body", {}) or {}
 
         self.context.add_llm_tools(VisionBridgeTool(plugin=self), ImageGenerateTool(plugin=self))

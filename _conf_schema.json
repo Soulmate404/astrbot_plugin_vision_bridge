@@ -120,8 +120,8 @@
   "image_output_dir": {
     "description": "文生图保存目录",
     "type": "string",
-    "hint": "当接口返回 b64_json 或 DashScope 临时图片 URL 时，插件会把图片保存到这里。",
-    "default": "data/vision_bridge_images"
+    "hint": "当接口返回 b64_json 或 DashScope 临时图片 URL 时，插件会把图片保存到这里。留空时使用当前插件专用数据目录下的 images。",
+    "default": ""
   },
   "image_extra_body": {
     "description": "文生图附加请求体参数",

@@ -90,7 +90,7 @@ pip install httpx dashscope
 | `image_timeout` | 文生图超时秒数 | `300` |
 | `image_enable_sequential` | 启用 Wan 组图模式 | `true` |
 | `image_download_results` | 下载 DashScope 临时 URL 到本地 | `true` |
-| `image_output_dir` | 生成图片保存目录 | `data/vision_bridge_images` |
+| `image_output_dir` | 生成图片保存目录，留空使用插件数据目录下的 `images` | 留空 |
 | `image_extra_body` | 追加到 DashScope 调用参数的对象 | `{"watermark": false}` |
 
 国内站通常使用：
