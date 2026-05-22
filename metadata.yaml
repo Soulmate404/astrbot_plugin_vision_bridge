@@ -1,5 +1,5 @@
 name: astrbot_plugin_vision_bridge
-desc: Let models inspect images and generate images through OpenAI-compatible APIs.
-version: v0.3.0
-author: soul
-repo: ""
+desc: 让普通文本模型通过工具获得图像能力。包括文生图与图片转文本，方便非多模态模型处理包含图片的文件
+version: v1.0.0
+author: Soulmate404
+repo: "https://github.com/Soulmate404/astrbot_plugin_vision_bridge"
