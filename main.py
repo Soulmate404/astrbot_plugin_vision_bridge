@@ -19,6 +19,18 @@ from astrbot.core.agent.run_context import ContextWrapper
 from astrbot.core.agent.tool import FunctionTool, ToolExecResult
 from astrbot.core.astr_agent_context import AstrAgentContext
 
+try:
+    import dashscope
+    from dashscope.aigc.image_generation import ImageGeneration
+    from dashscope.api_entities.dashscope_response import Message
+
+    _DASHSCOPE_AVAILABLE = True
+except ImportError:
+    _DASHSCOPE_AVAILABLE = False
+    dashscope = None  # type: ignore[assignment]
+    ImageGeneration = None  # type: ignore[assignment]
+    Message = None  # type: ignore[assignment]
+
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 
@@ -179,11 +191,14 @@ class VisionBridgePlugin(Star):
         )
         self.image_extra_body = config.get("image_extra_body", {}) or {}
 
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
+
         self.context.add_llm_tools(VisionBridgeTool(plugin=self), ImageGenerateTool(plugin=self))
         logger.info("vision_analyze and image_generate tools registered.")
 
     async def terminate(self):
-        pass
+        if hasattr(self, "_http"):
+            await self._http.aclose()
 
     @filter.command("vision_analyze")
     async def vision_analyze_command(self, event: AstrMessageEvent):
@@ -308,10 +323,14 @@ class VisionBridgePlugin(Star):
 
         headers = {"Authorization": f"Bearer {self.image_api_key}", "Content-Type": "application/json"}
         try:
-            async with httpx.AsyncClient(timeout=self.image_timeout) as client:
-                resp = await client.post(f"{self.image_base_url}/images/generations", headers=headers, json=body)
-                resp.raise_for_status()
-                payload = resp.json()
+            resp = await self._http.post(
+                f"{self.image_base_url}/images/generations",
+                headers=headers,
+                json=body,
+                timeout=httpx.Timeout(self.image_timeout),
+            )
+            resp.raise_for_status()
+            payload = resp.json()
         except Exception as exc:
             logger.exception("image_generate failed.")
             return {"error": f"调用文生图模型失败：{exc}"}
@@ -354,9 +373,8 @@ class VisionBridgePlugin(Star):
     def _call_dashscope_image_generation(
         self, prompt: str, size: str, n: int, enable_sequential: bool
     ) -> Any:
-        import dashscope
-        from dashscope.aigc.image_generation import ImageGeneration
-        from dashscope.api_entities.dashscope_response import Message
+        if not _DASHSCOPE_AVAILABLE:
+            raise ModuleNotFoundError("请先安装 dashscope 依赖。")
 
         dashscope.base_http_api_url = self.image_base_url
         message = Message(role="user", content=[{"text": prompt}])
@@ -413,7 +431,11 @@ class VisionBridgePlugin(Star):
             b64_json = item.get("b64_json")
             if not b64_json:
                 continue
-            image_bytes = base64.b64decode(b64_json)
+            try:
+                image_bytes = base64.b64decode(b64_json)
+            except Exception:
+                logger.exception("Failed to decode b64_json for item %d", index)
+                continue
             path = self.image_output_dir / f"{int(time.time())}_{index}_{self._short_id(b64_json)}.png"
             path.write_bytes(image_bytes)
             paths.append(str(path))
@@ -472,18 +494,21 @@ class VisionBridgePlugin(Star):
         self.image_output_dir.mkdir(parents=True, exist_ok=True)
         paths: list[str] = []
         failed_urls: list[str] = []
-        async with httpx.AsyncClient(timeout=self.image_timeout) as client:
-            for index, url in enumerate(urls):
-                try:
-                    resp = await client.get(url)
-                    resp.raise_for_status()
-                    ext = self._guess_image_ext(url, resp.headers.get("content-type", ""))
-                    path = self.image_output_dir / f"{int(time.time())}_{index}_{self._short_id(url)}{ext}"
-                    path.write_bytes(resp.content)
-                    paths.append(str(path))
-                except Exception:
-                    logger.exception("Failed to download generated image: %s", url)
-                    failed_urls.append(url)
+        timestamp = int(time.time())
+
+        async def _download_one(index: int, url: str):
+            try:
+                resp = await self._http.get(url, timeout=httpx.Timeout(self.image_timeout))
+                resp.raise_for_status()
+                ext = self._guess_image_ext(url, resp.headers.get("content-type", ""))
+                path = self.image_output_dir / f"{timestamp}_{index}_{self._short_id(url)}{ext}"
+                path.write_bytes(resp.content)
+                paths.append(str(path))
+            except Exception:
+                logger.exception("Failed to download generated image: %s", url)
+                failed_urls.append(url)
+
+        await asyncio.gather(*[_download_one(i, url) for i, url in enumerate(urls)])
         return paths, failed_urls
 
     def _guess_image_ext(self, url: str, content_type: str) -> str:
@@ -636,9 +661,8 @@ class VisionBridgePlugin(Star):
             body.update(self.extra_body)
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
-            resp.raise_for_status()
-            payload = resp.json()
+        resp = await self._http.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
+        resp.raise_for_status()
+        payload = resp.json()
 
         return payload["choices"][0]["message"]["content"].strip()
